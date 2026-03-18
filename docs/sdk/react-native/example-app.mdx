@@ -95,30 +95,24 @@ Use the Open Wearables REST API to programmatically access synced health data. C
 <Steps>
   <Step title="Clone the repository">
     ```bash
-    git clone https://github.com/the-momentum/open_wearables_health_sdk.git
-    cd open_wearables_health_sdk/example
+    git clone https://github.com/the-momentum/open-wearables-react-native-sdk.git
+    cd open-wearables-react-native-sdk
     ```
   </Step>
 
-  <Step title="Install dependencies">
+  <Step title="Install SDK dependencies">
+    From the repository root:
+
     ```bash
-    flutter pub get
+    npm install
     ```
   </Step>
 
-  <Step title="iOS Setup">
-    Open `ios/Runner.xcworkspace` in Xcode and:
-    
-    1. Select your development team in **Signing & Capabilities**
-    2. Ensure **HealthKit** capability is enabled
-    3. Update the bundle identifier if needed
-  </Step>
-
-  <Step title="Android Setup (optional)">
-    For Android:
-    
-    1. Ensure Health Connect is installed on the device (or Samsung Health for Samsung devices)
-    2. No additional Xcode/Android Studio configuration needed
+  <Step title="Install example app dependencies">
+    ```bash
+    cd example
+    npm install
+    ```
   </Step>
 
   <Step title="Get credentials from Open Wearables Dashboard">
@@ -128,24 +122,64 @@ Use the Open Wearables REST API to programmatically access synced health data. C
     4. Copy the invitation code and host URL
   </Step>
 
-  <Step title="Run the app">
+  <Step title="Run on iOS">
+    From the `example` directory:
+
     ```bash
-    flutter run
+    npx expo run:ios
     ```
-    
+
     <Note>
-      For iOS: Run on a **physical iOS device** - HealthKit doesn't work in the simulator.
-      For Android: Run on a device or emulator with Health Connect installed.
+      Run on a **physical iOS device** for health data sync — HealthKit is not available in the iOS Simulator.
     </Note>
+
+    If you encounter a signing error, update the bundle identifier to a unique value in `example/app.json` → `expo` → `ios` → `bundleIdentifier`, then regenerate the native project:
+
+    ```bash
+    npx expo prebuild --clean
+    ```
+  </Step>
+
+  <Step title="Run on Android">
+    The Android SDK is distributed via Maven Local. First, generate the native project:
+
+    ```bash
+    npx expo prebuild
+    ```
+
+    Then clone and publish the Android SDK to Maven Local:
+
+    ```bash
+    git clone https://github.com/the-momentum/open_wearables_android_sdk
+    cd open_wearables_android_sdk
+    git checkout v0.6.0
+    ./gradlew publishToMavenLocal
+    ```
+
+    Add `mavenLocal()` as the first entry under `allprojects` → `repositories` in `example/android/build.gradle`:
+
+    ```gradle
+    allprojects {
+      repositories {
+        mavenLocal()
+        // ...
+      }
+    }
+    ```
+
+    Run the app from the `example` directory:
+
+    ```bash
+    npx expo run:android
+    ```
   </Step>
 
   <Step title="Connect and sync">
     1. Enter the host URL and invitation code
     2. Tap **Connect** to redeem the code and sign in
-    3. On Android, select a health provider (Samsung Health or Health Connect)
-    4. Grant health permissions when prompted
-    5. Tap **Start Sync** to begin background synchronization
-    6. Check the dashboard to see your health data appear!
+    3. Grant health permissions when prompted
+    4. Tap **Start Sync** to begin background synchronization
+    5. Check the dashboard to see your health data appear!
   </Step>
 </Steps>
 
@@ -155,89 +189,99 @@ The example app demonstrates best practices for SDK integration:
 
 ```
 example/
-├── lib/
-│   └── main.dart          # Main app with SDK integration
-├── ios/
-│   └── Runner/
-│       └── Info.plist     # HealthKit permissions & background modes
-├── android/
-│   └── app/
-│       └── src/main/
-│           └── AndroidManifest.xml
-└── pubspec.yaml           # Dependencies
+├── App.tsx                    # Main app entry, SDK init & session state
+├── components/
+│   ├── SessionGroup.tsx       # Connect form (host URL + invitation code)
+│   ├── ActionsGroup.tsx       # Sync controls (start/stop/sync now)
+│   ├── ProvidersGroup.tsx     # Android provider selection
+│   └── StatusBanner.tsx       # Sync status display
+├── screens/
+│   └── LogsScreen.tsx         # SDK log viewer
+├── hooks/
+│   └── useLogs.ts             # Subscribes to onLog / onAuthError events
+├── app.json                   # Expo config (bundle ID, permissions plugin)
+└── package.json               # Dependencies
 ```
 
 ### Key Code Sections
 
 **SDK Initialization:**
 
-```dart
-await OpenWearablesHealthSdk.configure(
-  host: hostUrl,
-);
+```ts
+import OpenWearablesHealthSDK from "open-wearables";
+
+OpenWearablesHealthSDK.configure("https://your-api-host.com");
 ```
 
 **Sign In (via invitation code):**
 
-```dart
+```ts
 // Redeem invitation code to get credentials
-final response = await http.post(
-  Uri.parse('$host/api/v1/sdk/invitation-codes/$code/redeem'),
+const response = await fetch(
+  `${host}/api/v1/invitation-code/redeem`,
+  {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ code: invitationCode }),
+  }
 );
-if (response.statusCode != 200) {
-  throw Exception('Invitation redeem failed: ${response.statusCode}');
-}
-final data = json.decode(response.body);
+const data = await response.json();
 
 // Sign in with returned credentials
-await OpenWearablesHealthSdk.signIn(
-  userId: data['user_id'],
-  accessToken: data['access_token'],
-  refreshToken: data['refresh_token'],
+await OpenWearablesHealthSDK.signIn(
+  data.user_id,
+  data.access_token,
+  data.refresh_token,
+  null
 );
-```
-
-**Provider Selection (Android):**
-
-```dart
-if (Platform.isAndroid) {
-  final providers = await OpenWearablesHealthSdk.getAvailableProviders();
-  if (providers.isEmpty) {
-    throw Exception('No Android health provider is available');
-  }
-  final selectedProvider = providers.contains(AndroidHealthProvider.healthConnect)
-      ? AndroidHealthProvider.healthConnect
-      : providers.first;
-  await OpenWearablesHealthSdk.setProvider(selectedProvider);
-}
 ```
 
 **Request Permissions:**
 
-```dart
-await OpenWearablesHealthSdk.requestAuthorization(
-  types: [
-    HealthDataType.steps,
-    HealthDataType.heartRate,
-    HealthDataType.sleep,
-    HealthDataType.workout,
-    // ... more types
-  ],
+```ts
+import OpenWearablesHealthSDK, { HealthDataType } from "open-wearables";
+
+const granted = await OpenWearablesHealthSDK.requestAuthorization(
+  Object.values(HealthDataType)
 );
 ```
 
-**Start Background Sync:**
+**Start / Stop Background Sync:**
 
-```dart
-await OpenWearablesHealthSdk.startBackgroundSync();
+```ts
+// Start
+await OpenWearablesHealthSDK.startBackgroundSync();
+
+// Stop
+await OpenWearablesHealthSDK.stopBackgroundSync();
 ```
 
-**Log Stream:**
+**Sync Now:**
 
-```dart
-MethodChannelOpenWearablesHealthSdk.logStream.listen((message) {
-  // Display in logs page
-});
+```ts
+await OpenWearablesHealthSDK.syncNow();
+```
+
+**Listen for SDK Events:**
+
+```ts
+import { useEvent } from "expo";
+
+// In a React component
+const onLogPayload = useEvent(OpenWearablesHealthSDK, "onLog");
+const onAuthErrorPayload = useEvent(OpenWearablesHealthSDK, "onAuthError");
+```
+
+Or outside React with the standard `addListener` API:
+
+```ts
+const subscription = OpenWearablesHealthSDK.addListener(
+  "onLog",
+  ({ message }) => console.log("SDK log:", message)
+);
+
+// Clean up
+subscription.remove();
 ```
 
 ## Testing the Full Flow

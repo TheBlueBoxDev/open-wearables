@@ -181,11 +181,11 @@ end
 Configure the SDK once at app startup, typically in your main initialization code.
 
 ```TypeScript
-import OpenWearables from "open-wearables";
+import OpenWearablesHealthSDK from "open-wearables";
 
 export default function App() {
   useEffect(() => {
-    OpenWearables.configure("https://your-api-host.com");
+    OpenWearablesHealthSDK.configure("https://your-api-host.com");
     ...
   }, []);
 }
@@ -199,7 +199,7 @@ export default function App() {
 
 ```TypeScript
 // For self-hosted Open Wearables
-OpenWearables.configure("https://your-domain.com");
+OpenWearablesHealthSDK.configure("https://your-domain.com");
 ```
 
 ### Session Restoration
@@ -207,13 +207,12 @@ OpenWearables.configure("https://your-domain.com");
 The SDK automatically restores the user session from secure storage when `configure()` is called:
 
 ```TypeScript
+import OpenWearablesHealthSDK from "open-wearables";
 
-import OpenWearables from "open-wearables";
-
-await OpenWearables.configure('https://api.openwearables.io');
+OpenWearablesHealthSDK.configure('https://api.openwearables.io');
 
 // Check if user was previously signed in
-if (OpenWearables.isSessionValid()) {
+if (OpenWearablesHealthSDK.isSessionValid()) {
   // User is already signed in, can start sync directly
 } else {
   // Need to sign in first
@@ -227,18 +226,18 @@ After getting credentials from your backend, sign in with the SDK:
 ### Token-Based Authentication (Recommended)
 
 ```TypeScript
-import OpenWearables from "open-wearables";
+import OpenWearablesHealthSDK from "open-wearables";
 
 // 1. Get credentials from YOUR backend
-const response = await yourApi.post('/api/health/connect');
-const credentials = json.decode(response.body);
-    
+const response = await fetch('/api/health/connect', { method: 'POST' });
+const credentials = await response.json();
+
 // 2. Sign in with the SDK
-OpenWearables.signIn(
-  userId: credentials.userId,
-  accessToken: credentials.accessToken,
-  refreshToken: credentials.refreshToken,
-  apiKey: null,
+await OpenWearablesHealthSDK.signIn(
+  credentials.userId,
+  credentials.accessToken,
+  credentials.refreshToken,
+  null
 );
 ```
 
@@ -247,16 +246,14 @@ OpenWearables.signIn(
 For simpler setups (e.g. internal tools), you can use API key authentication directly:
 
 ```TypeScript
-import OpenWearables from "open-wearables";
+import OpenWearablesHealthSDK from "open-wearables";
 
-// 1. Get credentials from YOUR backend
-final response = await yourApi.post('/api/health/connect');
-final credentials = json.decode(response.body);
-    
-// 2. Sign in with API Key
-OpenWearables.signIn(
-  userId: credentials.userId,
-  apiKey: 'your_api_key',
+// Sign in with API Key
+await OpenWearablesHealthSDK.signIn(
+  'your_user_id',
+  null,
+  null,
+  'your_api_key'
 );
 ```
 
@@ -271,13 +268,9 @@ When you provide a `refreshToken`, the SDK automatically handles 401 responses b
 You can also update tokens manually:
 
 ```TypeScript
+import OpenWearablesHealthSDK from "open-wearables";
 
-import OpenWearables from "open-wearables";
-
-OpenWearables.updateTokens(
-  accessToken: accessToken,
-  refreshToken: refreshToken,
-);
+OpenWearablesHealthSDK.updateTokens(accessToken, refreshToken);
 ```
 
 ## Step 4: Request Permissions
@@ -286,9 +279,9 @@ Request access to specific health data types:
 
 ```TypeScript
 
-import OpenWearables from "open-wearables";
+import OpenWearablesHealthSDK from "open-wearables";
 
-let permission = await OpenWearables.requestAuthorization(["steps", "heartRate", "sleep"]);
+let permission = await OpenWearablesHealthSDK.requestAuthorization(["steps", "heartRate", "sleep"]);
 ```
 
 <Note>
@@ -304,17 +297,17 @@ let permission = await OpenWearables.requestAuthorization(["steps", "heartRate",
 Enable background sync to keep data flowing even when your app is in the background:
 
 ```TypeScript
-import OpenWearables from "open-wearables";
+import OpenWearablesHealthSDK from "open-wearables";
 
 
 // Start background sync
-await OpenWearables.startBackgroundSync();
+await OpenWearablesHealthSDK.startBackgroundSync();
 
 // Sync immediately
-await OpenWearables.syncNow();
+await OpenWearablesHealthSDK.syncNow();
 
 // Check sync status
-console.log(`Sync active: ${OpenWearables.isSyncActive()}`);
+console.log(`Sync active: ${OpenWearablesHealthSDK.isSyncActive()}`);
 ```
 
 ### Background Sync Behavior
@@ -344,9 +337,9 @@ console.log(`Sync active: ${OpenWearables.isSyncActive()}`);
 Trigger an immediate sync when needed:
 
 ```TypeScript
-import OpenWearables from "open-wearables";
+import OpenWearablesHealthSDK from "open-wearables";
 
-await OpenWearables.syncNow();
+await OpenWearablesHealthSDK.syncNow();
 ```
 
 ## Complete Integration Example
@@ -354,157 +347,68 @@ await OpenWearables.syncNow();
 Here's a complete service class showing the full integration:
 
 ```TypeScript
-import OpenWearables from "open-wearables";
-import { useEffect } from "react";
+import OpenWearablesHealthSDK, { HealthDataType } from "open-wearables";
+import { useEffect, useState } from "react";
+import { View, Text } from "react-native";
 
-class HealthSyncService {
-  private backendUrl: string;
-  private authToken: string;
+export default function App() {
+  const [isSyncActive, setIsSyncActive] = useState(false);
 
-  constructor(backendUrl: string, authToken: string) {
-    this.backendUrl = backendUrl;
-    this.authToken = authToken;
-  }
-
-  /// Initialize the health sync service
-  async initialize(): Promise<void> {
-    // Set up event listeners
-    OpenWearables.addListener("onLog", ({ message }) => {
+  useEffect(() => {
+    // 1. Set up event listeners
+    const logSub = OpenWearablesHealthSDK.addListener("onLog", ({ message }) => {
       console.log(`[HealthSync] ${message}`);
     });
-
-    OpenWearables.addListener("onAuthError", ({ statusCode, message }) => {
+    const authErrorSub = OpenWearablesHealthSDK.addListener("onAuthError", ({ statusCode, message }) => {
       console.error(`[HealthSync] Auth error ${statusCode}: ${message}`);
     });
 
-    OpenWearables.addListener("onSyncComplete", ({ success, error }) => {
-      if (success) {
-        console.log("[HealthSync] Sync completed successfully");
-      } else {
-        console.error(`[HealthSync] Sync failed: ${error}`);
+    // 2. Configure the SDK
+    OpenWearablesHealthSDK.configure("https://your-api-host.com");
+
+    // 3. Restore session or sign in
+    const init = async () => {
+      if (OpenWearablesHealthSDK.isSessionValid()) {
+        setIsSyncActive(Boolean(OpenWearablesHealthSDK.isSyncActive()));
+        return;
       }
-    });
 
-    // Configure the SDK
-    OpenWearables.configure(this.backendUrl);
+      // Get credentials from your backend
+      const response = await fetch("https://your-backend.com/api/health/connect", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer your_auth_token",
+        },
+      });
+      const credentials = await response.json();
 
-    // Restore session if available
-    if (OpenWearables.isSessionValid()) {
-      console.log("[HealthSync] Restored existing session");
-    }
-  }
+      await OpenWearablesHealthSDK.signIn(
+        credentials.userId,
+        credentials.accessToken,
+        credentials.refreshToken,
+        null
+      );
 
-  /// Connect to health sync service
-  async connect(): Promise<void> {
-    // Get credentials from backend
-    const response = await fetch(`${this.backendUrl}/api/health/connect`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${this.authToken}`,
-      },
-    });
+      // 4. Request permissions
+      await OpenWearablesHealthSDK.requestAuthorization(Object.values(HealthDataType));
 
-    if (!response.ok) {
-      throw new Error("Failed to connect to health sync service");
-    }
-
-    const credentials = await response.json();
-
-    // Sign in with the SDK
-    OpenWearables.signIn(
-      credentials.userId,
-      credentials.accessToken,
-      credentials.refreshToken,
-      null
-    );
-
-    console.log("[HealthSync] Connected successfully");
-  }
-
-  /// Request health permissions
-  async requestPermissions(): Promise<void> {
-    const types = ["steps", "heartRate", "sleep", "workouts", "activeEnergy"];
-    const authorized = await OpenWearables.requestAuthorization(types);
-    console.log(`[HealthSync] Permissions granted: ${authorized}`);
-  }
-
-  /// Start background sync
-  async startSync(): Promise<void> {
-    await OpenWearables.startBackgroundSync();
-    console.log("[HealthSync] Background sync started");
-  }
-
-  /// Sync immediately
-  async syncNow(): Promise<void> {
-    await OpenWearables.syncNow();
-    console.log("[HealthSync] Manual sync started");
-  }
-
-  /// Stop background sync
-  async stopSync(): Promise<void> {
-    await OpenWearables.stopBackgroundSync();
-    console.log("[HealthSync] Background sync stopped");
-  }
-
-  /// Check sync status
-  isSyncActive(): boolean {
-    return OpenWearables.isSyncActive();
-  }
-
-  /// Get sync status
-  async getSyncStatus(): Promise<any> {
-    return OpenWearables.getSyncStatus();
-  }
-
-  /// Get last sync time
-  async getLastSyncTime(): Promise<string> {
-    return OpenWearables.getLastSyncTime();
-  }
-
-  /// Get sync history
-  async getSyncHistory(): Promise<any[]> {
-    return OpenWearables.getSyncHistory();
-  }
-
-  /// Clear all data
-  async clearData(): Promise<void> {
-    await OpenWearables.clearData();
-    console.log("[HealthSync] Data cleared");
-  }
-
-  /// Sign out
-  async signOut(): Promise<void> {
-    await OpenWearables.signOut();
-    console.log("[HealthSync] Signed out");
-  }
-}
-
-// Usage in your app
-export default function App() {
-  const healthSyncService = new HealthSyncService(
-    "https://your-api-host.com",
-    "your_auth_token"
-  );
-
-  useEffect(() => {
-    const initializeSync = async () => {
-      try {
-        await healthSyncService.initialize();
-        await healthSyncService.connect();
-        await healthSyncService.requestPermissions();
-        await healthSyncService.startSync();
-      } catch (error) {
-        console.error("Failed to initialize health sync:", error);
-      }
+      // 5. Start background sync
+      const started = await OpenWearablesHealthSDK.startBackgroundSync();
+      setIsSyncActive(Boolean(started));
     };
 
-    initializeSync();
+    init().catch(console.error);
+
+    return () => {
+      logSub.remove();
+      authErrorSub.remove();
+    };
   }, []);
 
   return (
     <View>
-      <Text>Health Sync Status: {healthSyncService.isSyncActive() ? "Active" : "Inactive"}</Text>
+      <Text>Sync status: {isSyncActive ? "Active" : "Inactive"}</Text>
     </View>
   );
 }

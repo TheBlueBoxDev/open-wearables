@@ -10,7 +10,7 @@ The Open Wearables React Native SDK (`open-wearables-react-native-sdk`) enables 
 
 The SDK is built with the [Expo Module API](https://docs.expo.dev/modules/module-api/) enabling install the app in Expo Project as well as in React Native CLI projects. 
 
-On iOS, the React Native SDK is a **wrapper around the [native iOS SDK](/sdk/ios)** (`OpenWearablesHealthSDK`). On Android, it wraps the **[native Android SDK](/sdk/android)** (`open-wearables-android-sdk`). This means all the core sync logic — background execution, streaming uploads, secure storage, and retry mechanisms — is handled by the native implementations under the hood. The React Native layer provides a convenient TypeScript API for cross-platform apps.
+On iOS, the React Native SDK is a **wrapper around the [native iOS SDK](/sdk/ios)** (`open_wearables_ios_sdk`). On Android, it wraps the **[native Android SDK](/sdk/android)** (`open_wearables_android_sdk`). This means all the core sync logic — background execution, streaming uploads, secure storage, and retry mechanisms — is handled by the native implementations under the hood. The React Native layer provides a convenient TypeScript API for cross-platform apps.
 
 <CardGroup cols={3}>
   <Card title="React Native SDK Repository" icon="github" href="https://github.com/the-momentum/open-wearables-react-native-sdk">
@@ -144,37 +144,37 @@ Here's the minimal code to get health sync working:
 
 ```TypeScript
 
-import OpenWearables from "open-wearables";
+import OpenWearablesHealthSDK from "open-wearables";
 
 // Configure the SDK with your backend host
-OpenWearables.configure("https://your-api-host.com");
+OpenWearablesHealthSDK.configure("https://your-api-host.com");
 
 // Sign in (token-based)
-OpenWearables.signIn(userId, accessToken, refreshToken, null);
+OpenWearablesHealthSDK.signIn(userId, accessToken, refreshToken, null);
 
 // Or sign in (API key)
-OpenWearables.signIn(userId, null, null, apiKey);
+OpenWearablesHealthSDK.signIn(userId, null, null, apiKey);
 
 // Request HealthKit authorization
-await OpenWearables.requestAuthorization(["steps", "heartRate", "sleep"]);
+await OpenWearablesHealthSDK.requestAuthorization(["steps", "heartRate", "sleep"]);
 
 // Start background sync
-await OpenWearables.startBackgroundSync();
+await OpenWearablesHealthSDK.startBackgroundSync();
 
 // Sync immediately
-await OpenWearables.syncNow();
+await OpenWearablesHealthSDK.syncNow();
 ```
 
-##Events
+## Events
 Subscribe to native SDK events using the standard Expo module event emitter:
 
 ```TypeScript
 
-  const subscription = OpenWearables.addListener("onLog", ({ message }) => {
+  const subscription = OpenWearablesHealthSDK.addListener("onLog", ({ message }) => {
     console.log("SDK log:", message);
   });
 
-  const authSub = OpenWearables.addListener(
+  const authSub = OpenWearablesHealthSDK.addListener(
     "onAuthError",
     ({ statusCode, message }) => {
       console.error(`Auth error ${statusCode}:`, message);
