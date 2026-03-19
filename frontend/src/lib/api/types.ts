@@ -144,6 +144,12 @@ export interface ResetPasswordRequest {
   password: string;
 }
 
+export interface ChangePasswordRequest {
+  current_password: string;
+  new_password: string;
+  confirm_password: string;
+}
+
 export interface CountWithGrowth {
   count: number;
   weekly_growth: number;
@@ -213,14 +219,22 @@ export interface SleepStagesSummary {
   rem_minutes: number | null;
 }
 
+export interface SleepStage {
+  stage: 'in_bed' | 'sleeping' | 'light' | 'deep' | 'rem' | 'awake' | 'unknown';
+  start_time: string;
+  end_time: string;
+  duration_seconds?: number;
+}
+
 export interface SleepSession {
   id: string;
   start_time: string;
   end_time: string;
-  source: DataSource;
+  source: SourceMetadata;
   duration_seconds: number;
   efficiency_percent: number | null;
   stages: SleepStagesSummary | null;
+  sleep_stage_intervals: SleepStage[] | null;
   is_nap: boolean;
 }
 

@@ -45,12 +45,16 @@ class Settings(BaseSettings):
     SENTRY_DSN: str | None = None
     SENTRY_SAMPLES_RATE: float = 0.5
     SENTRY_ENV: str | None = None
+    SENTRY_SERVER_NAME: str | None = None
 
     # AUTH SETTINGS
     secret_key: str
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 60
     token_lifetime: int = 3600
+
+    # VALIDATION SETTINGS
+    min_password_length: int = 8
 
     # REDIS SETTINGS
     redis_host: str = "localhost"
