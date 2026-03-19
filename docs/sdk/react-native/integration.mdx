@@ -1,0 +1,453 @@
+---
+title: "Integration Guide"
+sidebarTitle: "Integration Guide"
+description: "Complete guide to integrating the React Native SDK with your application"
+---
+
+## Overview
+
+This guide walks you through the complete integration of the Open Wearables React Native SDK, from backend setup to production deployment.
+
+<Steps>
+  <Step title="Set up backend authentication endpoint" />
+  <Step title="Configure the SDK in your React Native app" />
+  <Step title="Implement sign-in flow" />
+  <Step title="Request health permissions" />
+  <Step title="Start background sync" />
+</Steps>
+
+## Authentication Architecture
+
+The SDK supports two authentication modes: **token-based** (recommended) and **API key**. The token-based flow keeps your API keys safe on your backend:
+
+<Steps>
+  <Step title="Mobile App requests credentials" icon="mobile">
+    User initiates health connection in your React Native app. App calls your backend.
+  </Step>
+  <Step title="Your Backend generates token" icon="server">
+    Your backend calls Open Wearables API with your **API Key** (server-to-server, HTTPS).
+    ```
+    POST https://api.openwearables.io/v1/tokens
+    X-API-Key: <OPENWEARABLES_API_KEY>
+    ```
+  </Step>
+  <Step title="Backend returns credentials" icon="key">
+    Open Wearables returns `userId` + `accessToken` (+ optional `refreshToken`). Your backend passes these to the mobile app (**not the API Key!**).
+  </Step>
+  <Step title="React Native SDK stores & syncs" icon="lock">
+    React Native SDK stores credentials in iOS Keychain / Android EncryptedSharedPreferences and uses `accessToken` to sync health data directly to Open Wearables.
+  </Step>
+</Steps>
+
+<Warning>
+  **Never embed your API Key in the mobile app.** The API Key should only exist on your backend server. Only the `accessToken` is passed to the mobile app.
+</Warning>
+
+## Step 1: Backend Setup
+
+Your backend needs a single endpoint that generates access tokens for your users.
+
+### Generate Access Token
+
+When a user wants to connect their health data, your backend should:
+
+1. Authenticate the user (your own auth system)
+2. Call Open Wearables API to generate an access token
+3. Return the token to the mobile app
+
+<Tabs>
+  <Tab title="Node.js">
+```javascript
+// Express.js example
+const express = require('express');
+const app = express();
+
+app.post('/api/health/connect', authenticateUser, async (req, res) => {
+  try {
+    // 1. Get your authenticated user
+    const userId = req.user.id;
+    
+    // 2. Call Open Wearables API to generate token
+    const response = await fetch('https://api.openwearables.io/v1/tokens', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-API-Key': process.env.OPENWEARABLES_API_KEY, // Secret! Never expose!
+      },
+      body: JSON.stringify({
+        externalId: userId.toString(), // Your user's ID
+      }),
+    });
+    
+    if (!response.ok) {
+      throw new Error('Failed to generate token');
+    }
+    
+    const { userId: owUserId, accessToken, refreshToken } = await response.json();
+    
+    // 3. Return credentials to mobile app (NOT the API Key!)
+    res.json({ 
+      userId: owUserId, 
+      accessToken,
+      refreshToken
+    });
+  } catch (error) {
+    console.error('Health connect error:', error);
+    res.status(500).json({ error: 'Failed to connect health' });
+  }
+});
+```
+  </Tab>
+
+  <Tab title="Python">
+```python
+# FastAPI example
+from fastapi import FastAPI, Depends, HTTPException
+import httpx
+import os
+
+app = FastAPI()
+
+@app.post("/api/health/connect")
+async def connect_health(current_user = Depends(get_current_user)):
+    # 1. Call Open Wearables API to generate token
+    async with httpx.AsyncClient() as client:
+        response = await client.post(
+            "https://api.openwearables.io/v1/tokens",
+            headers={
+                "Content-Type": "application/json",
+                "X-API-Key": os.environ["OPENWEARABLES_API_KEY"],
+            },
+            json={
+                "externalId": str(current_user.id),
+            },
+        )
+        
+        if response.status_code != 200:
+            raise HTTPException(500, "Failed to generate token")
+        
+        data = response.json()
+    
+    # 2. Return credentials to mobile app
+    return {
+        "userId": data["userId"],
+        "accessToken": data["accessToken"],
+        "refreshToken": data.get("refreshToken"),
+    }
+```
+  </Tab>
+
+  <Tab title="Ruby">
+```ruby
+# Rails controller example
+class HealthController < ApplicationController
+  before_action :authenticate_user!
+
+  def connect
+    # 1. Call Open Wearables API to generate token
+    response = HTTParty.post(
+      'https://api.openwearables.io/v1/tokens',
+      headers: {
+        'Content-Type' => 'application/json',
+        'X-API-Key' => ENV['OPENWEARABLES_API_KEY']
+      },
+      body: {
+        externalId: current_user.id.to_s
+      }.to_json
+    )
+
+    if response.success?
+      # 2. Return credentials to mobile app
+      render json: {
+        userId: response['userId'],
+        accessToken: response['accessToken'],
+        refreshToken: response['refreshToken']
+      }
+    else
+      render json: { error: 'Failed to connect' }, status: 500
+    end
+  end
+end
+```
+  </Tab>
+</Tabs>
+
+<Note>
+  The `externalId` parameter links the Open Wearables user to your user. Use your internal user ID to easily correlate data later.
+</Note>
+
+## Step 2: SDK Configuration
+
+Configure the SDK once at app startup, typically in your main initialization code.
+
+```TypeScript
+import OpenWearablesHealthSDK from "open-wearables";
+
+export default function App() {
+  useEffect(() => {
+    OpenWearablesHealthSDK.configure("https://your-api-host.com");
+    ...
+  }, []);
+}
+```
+
+### Configuration Options
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `host` | `String` | **Required.** The Open Wearables API URL (e.g. `https://api.openwearables.io`) |
+
+```TypeScript
+// For self-hosted Open Wearables
+OpenWearablesHealthSDK.configure("https://your-domain.com");
+```
+
+### Session Restoration
+
+The SDK automatically restores the user session from secure storage when `configure()` is called:
+
+```TypeScript
+import OpenWearablesHealthSDK from "open-wearables";
+
+OpenWearablesHealthSDK.configure('https://api.openwearables.io');
+
+// Check if user was previously signed in
+if (OpenWearablesHealthSDK.isSessionValid()) {
+  // User is already signed in, can start sync directly
+} else {
+  // Need to sign in first
+}
+```
+
+## Step 3: Sign In
+
+After getting credentials from your backend, sign in with the SDK:
+
+### Token-Based Authentication (Recommended)
+
+```TypeScript
+import OpenWearablesHealthSDK from "open-wearables";
+
+// 1. Get credentials from YOUR backend
+const response = await fetch('/api/health/connect', { method: 'POST' });
+const credentials = await response.json();
+
+// 2. Sign in with the SDK
+await OpenWearablesHealthSDK.signIn(
+  credentials.userId,
+  credentials.accessToken,
+  credentials.refreshToken,
+  null
+);
+```
+
+### API Key Authentication
+
+For simpler setups (e.g. internal tools), you can use API key authentication directly:
+
+```TypeScript
+import OpenWearablesHealthSDK from "open-wearables";
+
+// Sign in with API Key
+await OpenWearablesHealthSDK.signIn(
+  'your_user_id',
+  null,
+  null,
+  'your_api_key'
+);
+```
+
+<Warning>
+  API key authentication embeds the key in the app. Only use this for internal or trusted applications. For production apps, always use token-based authentication.
+</Warning>
+
+### Automatic Token Refresh
+
+When you provide a `refreshToken`, the SDK automatically handles 401 responses by refreshing the access token and retrying the request.
+
+You can also update tokens manually:
+
+```TypeScript
+import OpenWearablesHealthSDK from "open-wearables";
+
+OpenWearablesHealthSDK.updateTokens(accessToken, refreshToken);
+```
+
+## Step 4: Request Permissions
+
+Request access to specific health data types:
+
+```TypeScript
+
+import OpenWearablesHealthSDK from "open-wearables";
+
+let permission = await OpenWearablesHealthSDK.requestAuthorization(["steps", "heartRate", "sleep"]);
+```
+
+<Note>
+  On iOS, users can grant partial permissions. The SDK will sync whatever data the user allows.
+</Note>
+
+<Tip>
+  Request only the data types you actually need. Requesting too many types can overwhelm users and reduce acceptance rates.
+</Tip>
+
+## Step 5: Start Background Sync
+
+Enable background sync to keep data flowing even when your app is in the background:
+
+```TypeScript
+import OpenWearablesHealthSDK from "open-wearables";
+
+
+// Start background sync
+await OpenWearablesHealthSDK.startBackgroundSync();
+
+// Sync immediately
+await OpenWearablesHealthSDK.syncNow();
+
+// Check sync status
+console.log(`Sync active: ${OpenWearablesHealthSDK.isSyncActive()}`);
+```
+
+### Background Sync Behavior
+
+<Tabs>
+  <Tab title="iOS">
+    | Mechanism | Frequency |
+    |-----------|-----------|
+    | HealthKit Observer Queries | Immediate on new data |
+    | BGAppRefreshTask | Every ~15 minutes (system-managed) |
+    | BGProcessingTask | Network-required background processing |
+  </Tab>
+  <Tab title="Android">
+    | Mechanism | Frequency |
+    |-----------|-----------|
+    | WorkManager | Periodic sync with foreground service |
+    | Foreground Service | Used during active sync for reliability |
+  </Tab>
+</Tabs>
+
+<Warning>
+  Background sync frequency is managed by the OS and may vary based on battery level, network conditions, and user behavior.
+</Warning>
+
+### Manual Sync
+
+Trigger an immediate sync when needed:
+
+```TypeScript
+import OpenWearablesHealthSDK from "open-wearables";
+
+await OpenWearablesHealthSDK.syncNow();
+```
+
+## Complete Integration Example
+
+Here's a complete service class showing the full integration:
+
+```TypeScript
+import OpenWearablesHealthSDK, { HealthDataType } from "open-wearables";
+import { useEffect, useState } from "react";
+import { View, Text } from "react-native";
+
+export default function App() {
+  const [isSyncActive, setIsSyncActive] = useState(false);
+
+  useEffect(() => {
+    // 1. Set up event listeners
+    const logSub = OpenWearablesHealthSDK.addListener("onLog", ({ message }) => {
+      console.log(`[HealthSync] ${message}`);
+    });
+    const authErrorSub = OpenWearablesHealthSDK.addListener("onAuthError", ({ statusCode, message }) => {
+      console.error(`[HealthSync] Auth error ${statusCode}: ${message}`);
+    });
+
+    // 2. Configure the SDK
+    OpenWearablesHealthSDK.configure("https://your-api-host.com");
+
+    // 3. Restore session or sign in
+    const init = async () => {
+      if (OpenWearablesHealthSDK.isSessionValid()) {
+        setIsSyncActive(Boolean(OpenWearablesHealthSDK.isSyncActive()));
+        return;
+      }
+
+      // Get credentials from your backend
+      const response = await fetch("https://your-backend.com/api/health/connect", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer your_auth_token",
+        },
+      });
+      const credentials = await response.json();
+
+      await OpenWearablesHealthSDK.signIn(
+        credentials.userId,
+        credentials.accessToken,
+        credentials.refreshToken,
+        null
+      );
+
+      // 4. Request permissions
+      await OpenWearablesHealthSDK.requestAuthorization(Object.values(HealthDataType));
+
+      // 5. Start background sync
+      const started = await OpenWearablesHealthSDK.startBackgroundSync();
+      setIsSyncActive(Boolean(started));
+    };
+
+    init().catch(console.error);
+
+    return () => {
+      logSub.remove();
+      authErrorSub.remove();
+    };
+  }, []);
+
+  return (
+    <View>
+      <Text>Sync status: {isSyncActive ? "Active" : "Inactive"}</Text>
+    </View>
+  );
+}
+```
+
+## Data Sync Endpoint
+
+The SDK sends health data to:
+
+<ParamField path="host" type="string" required>
+  Your Open Wearables API base URL (e.g. `https://api.example.com`).
+</ParamField>
+
+<ParamField path="userId" type="string" required>
+  The user ID returned when registering the SDK user.
+</ParamField>
+
+```bash
+POST {host}/api/v1/sdk/users/{userId}/sync
+```
+
+<ResponseExample>
+```json 200
+{
+  "status": "ok",
+  "synced_records": 42
+}
+```
+</ResponseExample>
+
+Data is automatically normalized to the Open Wearables unified data model and can be accessed through the standard API endpoints.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Troubleshooting" icon="wrench" href="/sdk/react-native/troubleshooting">
+    Common issues and solutions for iOS and Android.
+  </Card>
+  <Card title="Data Types" icon="database" href="/architecture/data-types">
+    Available health metrics and data formats.
+  </Card>
+</CardGroup>
