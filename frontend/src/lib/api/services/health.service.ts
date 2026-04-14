@@ -4,6 +4,8 @@ import type {
   UserConnection,
   EventRecordResponse,
   HealthDataParams,
+  HealthScoreParams,
+  HealthScoreResponse,
   PaginatedResponse,
   TimeSeriesParams,
   TimeSeriesSample,
@@ -60,6 +62,25 @@ export const healthService = {
   },
 
   /**
+   * Trigger historical data sync for a provider
+   * Garmin: 30-day webhook backfill; others: pull API with date range
+   */
+  async syncHistoricalData(
+    provider: string,
+    userId: string,
+    days?: number
+  ): Promise<{ success: boolean; task_id: string; method: string }> {
+    const params = days ? { days } : undefined;
+    return apiClient.post<{
+      success: boolean;
+      task_id: string;
+      method: string;
+    }>(`/api/v1/providers/${provider}/users/${userId}/sync/historical`, null, {
+      params,
+    });
+  },
+
+  /**
    * Get Garmin backfill status with per-window matrix
    * Returns multi-window sequential sync progress (webhook-based)
    */
@@ -95,6 +116,15 @@ export const healthService = {
       user_id: string;
       message: string;
     }>(`/api/v1/providers/garmin/users/${userId}/backfill/cancel`);
+  },
+
+  /**
+   * Disconnect a user from a provider
+   */
+  async disconnectProvider(userId: string, provider: string): Promise<void> {
+    await apiClient.delete(
+      API_ENDPOINTS.userConnectionDisconnect(userId, provider)
+    );
   },
 
   /**
@@ -200,6 +230,19 @@ export const healthService = {
       {
         params,
       }
+    );
+  },
+
+  /**
+   * Get health scores (sleep, recovery, readiness, etc.) for a user
+   */
+  async getHealthScores(
+    userId: string,
+    params?: HealthScoreParams
+  ): Promise<PaginatedResponse<HealthScoreResponse>> {
+    return apiClient.get<PaginatedResponse<HealthScoreResponse>>(
+      API_ENDPOINTS.userHealthScores(userId),
+      { params }
     );
   },
 

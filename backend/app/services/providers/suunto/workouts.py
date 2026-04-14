@@ -7,13 +7,13 @@ from app.constants.workout_types.suunto import get_unified_workout_type
 from app.database import DbSession
 from app.models import DataSource
 from app.repositories.data_source_repository import DataSourceRepository
-from app.schemas import (
+from app.schemas.enums import ProviderName
+from app.schemas.model_crud.activities import (
     EventRecordCreate,
     EventRecordDetailCreate,
     EventRecordMetrics,
-    ProviderName,
-    SuuntoWorkoutJSON,
 )
+from app.schemas.providers.suunto import WorkoutJSON as SuuntoWorkoutJSON
 from app.services.event_record_service import event_record_service
 from app.services.providers.templates.base_workouts import BaseWorkoutsTemplate
 from app.utils.dates import offset_to_iso
@@ -43,8 +43,8 @@ class SuuntoWorkouts(BaseWorkoutsTemplate):
         end_date: datetime,
     ) -> list[Any]:
         """Get workouts from Suunto API."""
-        # Suunto uses 'since' parameter
-        since = int(start_date.timestamp())
+        # Suunto uses 'since' parameter in epoch milliseconds
+        since = int(start_date.timestamp() * 1000)
         params = {
             "since": since,
             "limit": 100,
@@ -214,29 +214,27 @@ class SuuntoWorkouts(BaseWorkoutsTemplate):
         db: DbSession,
         user_id: UUID,
         **kwargs: Any,
-    ) -> bool:
+    ) -> int:
         """Load data from Suunto API."""
         # Handle generic start_date/end_date
         start_date = kwargs.get("start_date")
 
         api_kwargs = kwargs.copy()
 
-        # Convert start_date to 'since' timestamp
+        # Convert start_date to 'since' timestamp (Suunto expects epoch milliseconds)
         if start_date:
             if isinstance(start_date, str):
                 try:
                     start_dt = datetime.fromisoformat(start_date.replace("Z", "+00:00"))
-                    api_kwargs["since"] = int(start_dt.timestamp())
+                    api_kwargs["since"] = int(start_dt.timestamp() * 1000)
                 except (ValueError, AttributeError):
                     pass
             elif isinstance(start_date, datetime):
-                api_kwargs["since"] = int(start_date.timestamp())
+                api_kwargs["since"] = int(start_date.timestamp() * 1000)
 
         # Set Suunto-specific defaults
         if "limit" not in api_kwargs:
             api_kwargs["limit"] = 100
-        if "filter_by_modification_time" not in api_kwargs:
-            api_kwargs["filter_by_modification_time"] = True
 
         response = self.get_workouts_from_api(db, user_id, **api_kwargs)
         workouts_data = response.get("payload", [])
@@ -255,12 +253,14 @@ class SuuntoWorkouts(BaseWorkoutsTemplate):
                     source=self.provider_name,
                 )
 
+        count = 0
         for record, details in self._build_bundles(workouts, user_id):
             created_record = event_record_service.create(db, record)
             detail_for_record = details.model_copy(update={"record_id": created_record.id})
             event_record_service.create_detail(db, detail_for_record)
+            count += 1
 
-        return True
+        return count
 
     def get_workout_detail(
         self,

@@ -17,6 +17,8 @@ export interface UserRead {
   last_name: string | null;
   email: string | null;
   external_user_id: string | null;
+  last_synced_at: string | null;
+  last_synced_provider: string | null;
 }
 
 export interface UserCreate {
@@ -29,7 +31,12 @@ export interface UserCreate {
 export interface UserQueryParams {
   page?: number;
   limit?: number;
-  sort_by?: 'created_at' | 'email' | 'first_name' | 'last_name';
+  sort_by?:
+    | 'created_at'
+    | 'email'
+    | 'first_name'
+    | 'last_name'
+    | 'last_synced_at';
   sort_order?: 'asc' | 'desc';
   search?: string;
   email?: string;
@@ -206,6 +213,8 @@ export interface UserConnection {
   last_synced_at?: string;
   created_at: string;
   updated_at: string;
+  max_historical_days?: number | null;
+  supports_pull?: boolean;
 }
 
 // ============================================================================
@@ -574,6 +583,34 @@ export interface InvitationAccept {
   first_name: string;
   last_name: string;
   password: string;
+}
+
+// Health Score types
+export interface ScoreComponent {
+  value: number | null;
+  qualifier: string | null;
+}
+
+export interface HealthScoreResponse {
+  id: string;
+  data_source_id: string | null;
+  provider: string | null;
+  category: string;
+  value: number | null;
+  qualifier: string | null;
+  recorded_at: string;
+  zone_offset: string | null;
+  components: Record<string, ScoreComponent> | null;
+}
+
+export interface HealthScoreParams {
+  start_date?: string;
+  end_date?: string;
+  category?: string;
+  provider?: string;
+  limit?: number;
+  offset?: number;
+  [key: string]: string | number | undefined;
 }
 
 // Sync Response (returned by provider sync endpoint)

@@ -11,7 +11,8 @@ Tests cover:
 import pytest
 from sqlalchemy.orm import Session
 
-from app.schemas import ProviderName, ProviderSettingUpdate
+from app.schemas.enums import ProviderName
+from app.schemas.model_crud.data_priority import ProviderSettingUpdate
 from app.services.provider_settings_service import ProviderSettingsService
 
 
@@ -28,8 +29,8 @@ class TestProviderSettingsServiceGetAllProviders:
 
         # Assert
         provider_names = {p.provider for p in providers}
-        # Exclude 'unknown' and 'oura' - oura has no active strategy implementation
-        expected_names = {p.value for p in ProviderName if p.value not in ("unknown", "oura")}
+        # Exclude 'unknown' - all other providers have active strategy implementations
+        expected_names = {p.value for p in ProviderName if p.value not in ("unknown", "internal")}
         assert provider_names == expected_names
 
     def test_get_all_providers_includes_display_name(self, db: Session) -> None:
@@ -227,7 +228,7 @@ class TestProviderSettingsServiceBulkUpdateProviders:
 
         # Assert
         # Should return all providers with their current settings
-        # Subtract 2 for 'unknown' and 'oura' which have no strategy implementations
+        # Subtract 2 for 'unknown' and 'internal' which have no strategy implementation
         assert len(results) == len(list(ProviderName)) - 2
 
     def test_bulk_update_providers_single_update(self, db: Session) -> None:
@@ -258,9 +259,9 @@ class TestProviderSettingsServiceBulkUpdateProviders:
         results = service.bulk_update_providers(db, updates)
 
         # Assert
-        # Should return all provider types (excluding unknown and oura which has no strategy)
+        # Should return all provider types (excluding unknown which has no strategy)
         provider_names = {p.provider for p in results}
-        expected_names = {p.value for p in ProviderName if p.value not in ("unknown", "oura")}
+        expected_names = {p.value for p in ProviderName if p.value not in ("unknown", "internal")}
         assert provider_names == expected_names
 
     def test_bulk_update_providers_validates_first_then_updates(self, db: Session) -> None:

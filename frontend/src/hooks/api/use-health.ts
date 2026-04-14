@@ -8,20 +8,42 @@ import type {
   TimeSeriesParams,
   SleepSessionsParams,
   BodySummaryParams,
+  HealthScoreParams,
 } from '@/lib/api/types';
 import { queryKeys } from '@/lib/query/keys';
 import { toast } from 'sonner';
 import { queryClient } from '@/lib/query/client';
 
 /**
+ * Disconnect a user from a provider
+ * Uses DELETE /api/v1/users/{user_id}/connections/{provider}
+ */
+export function useDisconnectProvider(provider: string, userId: string) {
+  return useMutation({
+    mutationFn: () => healthService.disconnectProvider(userId, provider),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.connections.all(userId),
+      });
+      toast.success(`Disconnected from ${provider}`);
+    },
+    onError: (error: unknown) => {
+      const message =
+        error instanceof Error ? error.message : 'Failed to disconnect';
+      toast.error(message);
+    },
+  });
+}
+
+/**
  * Get user connections for a user
  * Uses GET /api/v1/users/{user_id}/connections
  */
-export function useUserConnections(userId: string) {
+export function useUserConnections(userId: string, enabled: boolean = true) {
   return useQuery({
     queryKey: queryKeys.connections.all(userId),
     queryFn: () => healthService.getUserConnections(userId),
-    enabled: !!userId,
+    enabled: !!userId && enabled,
   });
 }
 
@@ -98,6 +120,18 @@ export function useBodySummary(userId: string, params?: BodySummaryParams) {
 }
 
 /**
+ * Get health scores (sleep, recovery, readiness, etc.) for a user
+ * Uses GET /api/v1/users/{user_id}/health-scores
+ */
+export function useHealthScores(userId: string, params: HealthScoreParams) {
+  return useQuery({
+    queryKey: queryKeys.health.healthScores(userId, params),
+    queryFn: () => healthService.getHealthScores(userId, params),
+    enabled: !!userId && !!params.start_date && !!params.end_date,
+  });
+}
+
+/**
  * Synchronize workouts/exercises/activities from fitness provider API for a specific user
  */
 export function useSynchronizeDataFromProvider(
@@ -125,12 +159,46 @@ export function useSynchronizeDataFromProvider(
       queryClient.invalidateQueries({
         queryKey: queryKeys.health.bodySummary(userId),
       });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.health.healthScores(userId),
+      });
 
       toast.success('Data synchronized successfully');
     },
     onError: (error: unknown) => {
       const message =
         error instanceof Error ? error.message : 'Failed to synchronize data';
+      toast.error(message);
+    },
+  });
+}
+
+/**
+ * Trigger historical data sync for a provider
+ * Garmin: 30-day webhook backfill; others: pull API with date range
+ */
+export function useSyncHistoricalData(provider: string, userId: string) {
+  return useMutation({
+    mutationFn: (days?: number) =>
+      healthService.syncHistoricalData(provider, userId, days),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.connections.all(userId),
+      });
+      if (data.method === 'webhook_backfill') {
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.garmin.backfillStatus(userId),
+        });
+        toast.success('Historical backfill started');
+      } else {
+        toast.success('Historical sync queued');
+      }
+    },
+    onError: (error: unknown) => {
+      const message =
+        error instanceof Error
+          ? error.message
+          : 'Failed to start historical sync';
       toast.error(message);
     },
   });

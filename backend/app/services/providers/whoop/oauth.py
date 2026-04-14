@@ -3,8 +3,11 @@ import logging
 import httpx
 
 from app.config import settings
-from app.schemas import (
+from app.schemas.auth import (
     AuthenticationMethod,
+)
+from app.schemas.enums import ProviderName
+from app.schemas.model_crud.credentials import (
     OAuthTokenResponse,
     ProviderCredentials,
     ProviderEndpoints,
@@ -32,7 +35,7 @@ class WhoopOAuth(BaseOAuthTemplate):
         return ProviderCredentials(
             client_id=settings.whoop_client_id or "",
             client_secret=(settings.whoop_client_secret.get_secret_value() if settings.whoop_client_secret else ""),
-            redirect_uri=settings.whoop_redirect_uri,
+            redirect_uri=settings.oauth_redirect_uri(ProviderName.WHOOP),
             default_scope=settings.whoop_default_scope,
         )
 

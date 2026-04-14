@@ -3,6 +3,7 @@ import sys
 from logging import Formatter, StreamHandler, getLogger
 
 from app.config import settings
+from app.services import raw_payload_storage
 from celery import Celery, signals
 from celery import current_app as current_celery_app
 from celery.schedules import crontab
@@ -39,6 +40,18 @@ def setup_celery_logging(**kwargs) -> None:
     celery_logger.propagate = False
 
 
+@signals.worker_init.connect
+def init_raw_payload_storage(**kwargs) -> None:
+    """Initialize raw payload storage in celery workers."""
+    raw_payload_storage.configure(
+        settings.raw_payload_storage,
+        settings.raw_payload_max_size_bytes,
+        s3_bucket=settings.raw_payload_s3_bucket or settings.aws_bucket_name,
+        s3_prefix=settings.raw_payload_s3_prefix,
+        s3_endpoint_url=settings.raw_payload_s3_endpoint_url,
+    )
+
+
 def create_celery() -> Celery:
     celery_app: Celery = current_celery_app  # type: ignore[assignment]
     celery_app.conf.update(
@@ -52,6 +65,8 @@ def create_celery() -> Celery:
         task_default_queue="default",
         task_default_exchange="default",
         result_expires=3 * 24 * 3600,
+        control_queue_ttl=300,
+        control_queue_expires=300,
         task_queues={
             "default": {},
             "sdk_sync": {},
@@ -85,6 +100,12 @@ def create_celery() -> Celery:
         "run-daily-archival": {
             "task": "app.integrations.celery.tasks.archival_task.run_daily_archival",
             "schedule": crontab(hour=3, minute=0),  # Daily at 03:00 UTC
+            "args": (),
+            "kwargs": {},
+        },
+        "fill-missing-sleep-scores": {
+            "task": "app.integrations.celery.tasks.fill_missing_sleep_scores_task.fill_missing_sleep_scores",
+            "schedule": float(settings.sleep_score_interval_seconds),
             "args": (),
             "kwargs": {},
         },

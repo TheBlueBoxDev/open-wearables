@@ -1,5 +1,10 @@
 from app.config import settings
-from app.schemas import OAuthTokenResponse, ProviderCredentials, ProviderEndpoints
+from app.schemas.enums import ProviderName
+from app.schemas.model_crud.credentials import (
+    OAuthTokenResponse,
+    ProviderCredentials,
+    ProviderEndpoints,
+)
 from app.services.providers.templates.base_oauth import BaseOAuthTemplate
 
 
@@ -18,13 +23,14 @@ class PolarOAuth(BaseOAuthTemplate):
         return ProviderCredentials(
             client_id=settings.polar_client_id or "",
             client_secret=(settings.polar_client_secret.get_secret_value() if settings.polar_client_secret else ""),
-            redirect_uri=settings.polar_redirect_uri,
+            redirect_uri=settings.oauth_redirect_uri(ProviderName.POLAR),
             default_scope=settings.polar_default_scope,
         )
 
     def _get_provider_user_info(self, token_response: OAuthTokenResponse, user_id: str) -> dict[str, str | None]:
         """Extracts Polar user ID from token response and registers user."""
-        provider_user_id = str(token_response.x_user_id) if token_response.x_user_id is not None else None
+        raw = token_response.model_extra.get("x_user_id") if token_response.model_extra else None
+        provider_user_id = str(raw) if raw is not None else None
 
         if provider_user_id:
             self._register_user(token_response.access_token, user_id)

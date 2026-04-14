@@ -6,12 +6,12 @@ from uuid import UUID, uuid4
 
 from app.constants.workout_types.garmin import get_unified_workout_type
 from app.database import DbSession
-from app.schemas import (
+from app.schemas.model_crud.activities import (
     EventRecordCreate,
     EventRecordDetailCreate,
     EventRecordMetrics,
-    GarminActivityJSON,
 )
+from app.schemas.providers.garmin import ActivityJSON as GarminActivityJSON
 from app.services.event_record_service import event_record_service
 from app.services.providers.templates.base_workouts import BaseWorkoutsTemplate
 from app.utils.dates import offset_to_iso
@@ -254,14 +254,14 @@ class GarminWorkouts(BaseWorkoutsTemplate):
         db: DbSession,
         user_id: UUID,
         **kwargs: Any,
-    ) -> bool:
+    ) -> int:
         """No-op: Garmin activity data arrives via webhooks.
 
         REST/summary endpoints are not used. Historical data is fetched
         via the backfill API which delivers data through webhooks.
         """
         self.logger.info(f"Garmin activities for user {user_id} arrive via webhooks (no REST fetch)")
-        return True
+        return 0
 
     def get_activity_detail(
         self,

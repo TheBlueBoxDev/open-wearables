@@ -7,19 +7,23 @@ Syncs data from three Suunto Cloud API endpoints:
 - /247/daily-activity-statistics → DataPointSeries (aggregated daily steps/energy)
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
 
+from app.config import settings
 from app.database import DbSession
 from app.models import DataPointSeries, DataSource, EventRecord
 from app.repositories import EventRecordRepository, UserConnectionRepository
 from app.repositories.data_point_series_repository import DataPointSeriesRepository
 from app.repositories.data_source_repository import DataSourceRepository
-from app.schemas import EventRecordCreate, TimeSeriesSampleCreate
-from app.schemas.event_record_detail import EventRecordDetailCreate
-from app.schemas.series_types import SeriesType
+from app.schemas.enums import SeriesType
+from app.schemas.model_crud.activities import (
+    EventRecordCreate,
+    EventRecordDetailCreate,
+    TimeSeriesSampleCreate,
+)
 from app.services.event_record_service import event_record_service
 from app.services.providers.api_client import make_authenticated_request
 from app.services.providers.templates.base_247_data import Base247DataTemplate
@@ -274,10 +278,7 @@ class Suunto247Data(Base247DataTemplate):
         )
 
         try:
-            created_record = event_record_service.create(db, record)
-            # Use the ID of the actually created/returned record (handles duplicates)
-            detail.record_id = created_record.id
-            event_record_service.create_detail(db, detail, detail_type="sleep")
+            event_record_service.create_or_merge_sleep(db, user_id, record, detail, settings.sleep_end_gap_minutes)
         except Exception as e:
             log_structured(
                 self.logger,
@@ -662,9 +663,16 @@ class Suunto247Data(Base247DataTemplate):
         is_first_sync: bool = False,
     ) -> dict[str, int]:
         """Load all 247 data types and save to database."""
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
         end_dt = parse_datetime_or_default(end_time, now)
         start_dt = parse_datetime_or_default(start_time, end_dt - timedelta(days=28))
+
+        # Ensure both bounds are timezone-aware so chunk comparisons don't raise
+        # TypeError when mixed naive/aware datetimes end up in _fetch_in_chunks.
+        if start_dt.tzinfo is None:
+            start_dt = start_dt.replace(tzinfo=timezone.utc)
+        if end_dt.tzinfo is None:
+            end_dt = end_dt.replace(tzinfo=timezone.utc)
 
         results: dict[str, int] = {
             "sleep_sessions_synced": 0,
@@ -724,5 +732,11 @@ class Suunto247Data(Base247DataTemplate):
                 provider="suunto",
                 task="load_and_save_all",
             )
+
+        # Commit all pending bulk inserts (activity samples, daily stats) that were
+        # not committed within their individual save methods. Sleep and recovery
+        # commit per-record via crud.create/try_commit, but bulk_create_samples
+        # defers commit to the caller intentionally for batching efficiency.
+        db.commit()
 
         return results
