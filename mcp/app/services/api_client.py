@@ -90,7 +90,6 @@ class OpenWearablesClient:
         user_id: str,
         start_date: str,
         end_date: str,
-        cursor: str | None = None,
         limit: int = 100,
     ) -> dict[str, Any]:
         """
@@ -110,8 +109,6 @@ class OpenWearablesClient:
             "end_date": end_date,
             "limit": limit,
         }
-        if cursor:
-            params["cursor"] = cursor
         return await self._request("GET", f"/api/v1/users/{user_id}/summaries/sleep", params=params)
 
     async def get_workouts(

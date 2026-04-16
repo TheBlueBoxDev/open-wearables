@@ -34,7 +34,6 @@ mcp = FastMCP(
     - get_users: Discover users accessible via your API key
     - get_activity_summary: Get daily activity data (steps, calories, heart rate, intensity minutes)
     - get_sleep_summary: Get sleep data for a user over a specified time period
-    - get_sleep_summaries_advanced: Get full sleep API fields with detailed stage/nap/physiology metrics
     - get_workout_events: Get workout/exercise data for a user over a specified time period
 
     Available prompts:
@@ -79,14 +78,6 @@ mcp = FastMCP(
       4. Respond with: "Over the past week, you averaged 7.2 hours of sleep per night.
          Your best night was Tuesday (8.1 hours), and your shortest was Friday (5.9 hours).
          Your sleep efficiency averaged 89%, which is good."
-
-    Example interaction:
-    User: "Show full sleep metrics including naps and sleep stages for last month"
-    Assistant actions:
-      1. Call get_users() to find the user's ID
-      2. Calculate dates for last month
-      3. Call get_sleep_summaries_advanced(user_id="{{user_id}}", start_date="2026-01-01", end_date="2026-01-31")
-      4. Explain sleep stages, efficiency, naps, and physiology trends from returned fields
 
     Example interaction:
     User: "Compare my sleep this week vs last week"

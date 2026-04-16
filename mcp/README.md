@@ -7,7 +7,6 @@ MCP (Model Context Protocol) server for Open Wearables, enabling AI assistants l
 - **get_users**: Discover users accessible via your API key
 - **get_activity_summary**: Get daily activity data (steps, calories, heart rate, intensity minutes)
 - **get_sleep_summary**: Get sleep data for a user within a date range
-- **get_sleep_summaries_advanced**: Get full sleep API fields (stages, naps, physiology, pagination)
 - **get_workout_events**: Get workout/exercise sessions for a user within a date range
 
 ## Prerequisites
@@ -124,13 +123,6 @@ User: "Show me Jane's sleep for January 2026"
 Claude: [calls get_sleep_summary(user_id="uuid-2", start_date="2026-01-01", end_date="2026-01-31")]
 ```
 
-### Querying advanced sleep metrics
-
-```
-User: "Show full sleep metrics with naps and stages for January 2026"
-Claude: [calls get_sleep_summaries_advanced(user_id="uuid-2", start_date="2026-01-01", end_date="2026-01-31")]
-```
-
 ## Available Tools
 
 ### get_users
@@ -182,44 +174,6 @@ Get sleep summaries for a user within a date range.
     "min_duration_minutes": 360,
     "max_duration_minutes": 540
   }
-}
-```
-
-### get_sleep_summaries_advanced
-
-Get the complete sleep summary payload from `/api/v1/users/{user_id}/summaries/sleep`, including
-all sleep fields plus analysis-friendly aggregates.
-
-**Parameters:**
-- `user_id` (required): UUID of the user
-- `start_date` (required): Start date in YYYY-MM-DD format
-- `end_date` (required): End date in YYYY-MM-DD format
-- `cursor` (optional): Pagination cursor from a previous response
-- `limit` (optional): Page size (1-100, default 50)
-
-**Returns:**
-```json
-{
-  "user": {"id": "uuid-1", "first_name": "John", "last_name": "Doe"},
-  "period": {"start": "2026-01-01", "end": "2026-01-31"},
-  "records": [
-    {
-      "date": "2026-01-18",
-      "source": {"provider": "garmin", "device": "Venu 3"},
-      "start_time": "2026-01-17T22:43:00+00:00",
-      "end_time": "2026-01-18T06:58:00+00:00",
-      "duration_minutes": 495,
-      "time_in_bed_minutes": 522,
-      "efficiency_percent": 94.8,
-      "stages": {"awake_minutes": 27, "light_minutes": 252, "deep_minutes": 108, "rem_minutes": 108},
-      "nap_count": 1,
-      "nap_duration_minutes": 25,
-      "avg_heart_rate_bpm": 54
-    }
-  ],
-  "pagination": {"has_more": false, "next_cursor": null, "previous_cursor": null},
-  "metadata": {"resolution": "raw", "sample_count": 31},
-  "analysis": {"total_nights": 31}
 }
 ```
 
