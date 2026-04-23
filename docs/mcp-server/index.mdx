@@ -48,6 +48,9 @@ The MCP server provides the following tools for AI assistants:
   <Card title="Sleep Summary" icon="bed">
     Get sleep data for a user within a date range.
   </Card>
+  <Card title="Advanced Sleep Summary" icon="moon-stars">
+    Get full sleep API fields including stages, naps, physiological metrics, and pagination context.
+  </Card>
   <Card title="Workout Events" icon="dumbbell">
     Get workout and exercise sessions for a user within a date range.
   </Card>
@@ -71,6 +74,15 @@ Claude: [calls get_users() to get John's user_id]
 Claude: [calls get_sleep_summary(user_id="uuid-1", start_date="2026-01-28", end_date="2026-02-04")]
 Claude: "John slept an average of 7 hours and 45 minutes over the last week.
 His longest sleep was 8h 15m on Monday, and shortest was 6h 30m on Thursday."
+```
+
+### Querying advanced sleep data
+
+```
+User: "Show all sleep metrics for John last month, including naps and stages"
+Claude: [calls get_users() to get John's user_id]
+Claude: [calls get_sleep_summaries_advanced(user_id="uuid-1", start_date="2026-01-01", end_date="2026-01-31")]
+Claude: "John averaged 7h 42m of main sleep, 90.6% efficiency, and took 6 naps totaling 2h 10m."
 ```
 
 ### Generic request (no time range specified)
