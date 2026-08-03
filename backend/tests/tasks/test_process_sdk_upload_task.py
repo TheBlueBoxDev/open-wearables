@@ -4,6 +4,7 @@ Tests for process_apple_upload Celery task.
 Tests Apple Health data import processing with user validation.
 """
 
+from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
@@ -131,3 +132,138 @@ class TestProcessSDKUploadTask:
         call_args = mock_user_repo.get.call_args
         assert call_args[0][0] == mock_db
         assert call_args[0][1] == UUID(user_id)
+
+    @patch("app.integrations.celery.tasks.process_sdk_upload_task.sdk_import_service")
+    @patch("app.integrations.celery.tasks.process_sdk_upload_task.UserConnectionRepository")
+    @patch("app.integrations.celery.tasks.process_sdk_upload_task.SessionLocal")
+    @patch("app.integrations.celery.tasks.process_sdk_upload_task.UserRepository")
+    def test_process_sdk_upload_forwards_received_at(
+        self,
+        mock_user_repo_class: MagicMock,
+        mock_session_local: MagicMock,
+        mock_connection_repo_class: MagicMock,
+        mock_hk_import_service: MagicMock,
+        db: Session,
+        mock_celery_app: MagicMock,
+    ) -> None:
+        """Verify received_at reaches ensure_sdk_connection as a parsed datetime."""
+        # Arrange
+        user = UserFactory()
+        mock_session_local.return_value.__enter__ = MagicMock(return_value=db)
+        mock_session_local.return_value.__exit__ = MagicMock(return_value=None)
+
+        mock_user_repo = MagicMock()
+        mock_user_repo.get.return_value = user
+        mock_user_repo_class.return_value = mock_user_repo
+
+        mock_connection_repo = MagicMock()
+        mock_connection_repo_class.return_value = mock_connection_repo
+
+        mock_response = MagicMock()
+        mock_response.model_dump.return_value = {"status_code": 200}
+        mock_hk_import_service.import_data_from_request.return_value = mock_response
+
+        received_at = datetime(2026, 1, 2, 3, 4, 5, tzinfo=timezone.utc)
+
+        # Act
+        process_sdk_upload(
+            content='{"data":{"workouts":[],"records":[]}}',
+            content_type="application/json",
+            user_id=str(user.id),
+            provider="apple",
+            received_at=received_at.isoformat(),
+        )
+
+        # Assert
+        mock_connection_repo.ensure_sdk_connection.assert_called_once()
+        assert mock_connection_repo.ensure_sdk_connection.call_args.kwargs["received_at"] == received_at
+
+    @patch("app.integrations.celery.tasks.process_sdk_upload_task.sdk_import_service")
+    @patch("app.integrations.celery.tasks.process_sdk_upload_task.UserConnectionRepository")
+    @patch("app.integrations.celery.tasks.process_sdk_upload_task.SessionLocal")
+    @patch("app.integrations.celery.tasks.process_sdk_upload_task.UserRepository")
+    def test_process_sdk_upload_malformed_received_at_forwards_none(
+        self,
+        mock_user_repo_class: MagicMock,
+        mock_session_local: MagicMock,
+        mock_connection_repo_class: MagicMock,
+        mock_hk_import_service: MagicMock,
+        db: Session,
+        mock_celery_app: MagicMock,
+    ) -> None:
+        """An unparsable received_at degrades to None rather than dropping the batch."""
+        # Arrange
+        user = UserFactory()
+        mock_session_local.return_value.__enter__ = MagicMock(return_value=db)
+        mock_session_local.return_value.__exit__ = MagicMock(return_value=None)
+
+        mock_user_repo = MagicMock()
+        mock_user_repo.get.return_value = user
+        mock_user_repo_class.return_value = mock_user_repo
+
+        mock_connection_repo = MagicMock()
+        mock_connection_repo_class.return_value = mock_connection_repo
+
+        mock_response = MagicMock()
+        mock_response.model_dump.return_value = {"status_code": 200}
+        mock_hk_import_service.import_data_from_request.return_value = mock_response
+
+        # Act
+        result = process_sdk_upload(
+            content='{"data":{"workouts":[],"records":[]}}',
+            content_type="application/json",
+            user_id=str(user.id),
+            provider="apple",
+            received_at="not-a-timestamp",
+        )
+
+        # Assert
+        assert result["status_code"] == 200
+        mock_connection_repo.ensure_sdk_connection.assert_called_once()
+        assert mock_connection_repo.ensure_sdk_connection.call_args.kwargs["received_at"] is None
+
+    @patch("app.integrations.celery.tasks.process_sdk_upload_task.sdk_import_service")
+    @patch("app.integrations.celery.tasks.process_sdk_upload_task.UserConnectionRepository")
+    @patch("app.integrations.celery.tasks.process_sdk_upload_task.SessionLocal")
+    @patch("app.integrations.celery.tasks.process_sdk_upload_task.UserRepository")
+    def test_process_sdk_upload_naive_received_at_assumed_utc(
+        self,
+        mock_user_repo_class: MagicMock,
+        mock_session_local: MagicMock,
+        mock_connection_repo_class: MagicMock,
+        mock_hk_import_service: MagicMock,
+        db: Session,
+        mock_celery_app: MagicMock,
+    ) -> None:
+        """A naive received_at is stamped UTC so the guard's comparison cannot raise."""
+        # Arrange
+        user = UserFactory()
+        mock_session_local.return_value.__enter__ = MagicMock(return_value=db)
+        mock_session_local.return_value.__exit__ = MagicMock(return_value=None)
+
+        mock_user_repo = MagicMock()
+        mock_user_repo.get.return_value = user
+        mock_user_repo_class.return_value = mock_user_repo
+
+        mock_connection_repo = MagicMock()
+        mock_connection_repo_class.return_value = mock_connection_repo
+
+        mock_response = MagicMock()
+        mock_response.model_dump.return_value = {"status_code": 200}
+        mock_hk_import_service.import_data_from_request.return_value = mock_response
+
+        # Act
+        result = process_sdk_upload(
+            content='{"data":{"workouts":[],"records":[]}}',
+            content_type="application/json",
+            user_id=str(user.id),
+            provider="apple",
+            received_at="2026-01-02T03:04:05",
+        )
+
+        # Assert
+        assert result["status_code"] == 200
+        mock_connection_repo.ensure_sdk_connection.assert_called_once()
+        assert mock_connection_repo.ensure_sdk_connection.call_args.kwargs["received_at"] == datetime(
+            2026, 1, 2, 3, 4, 5, tzinfo=timezone.utc
+        )

@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime, timezone
 from logging import getLogger
 from uuid import UUID
 
@@ -34,6 +35,7 @@ def process_sdk_upload(
     user_id: str,
     provider: str,
     batch_id: str | None = None,
+    received_at: str | None = None,
 ) -> dict[str, int | str]:
     """
     Process SDK data import asynchronously.
@@ -44,6 +46,9 @@ def process_sdk_upload(
         user_id: User ID to associate with the data
         provider: Import provider - "apple", "samsung", "google"
         batch_id: Unique batch identifier for tracking (optional for backwards compatibility)
+        received_at: ISO 8601 server-side accept time of the batch, used to avoid reactivating a
+            connection revoked after the batch was accepted (optional for backwards
+            compatibility: batches queued before this parameter existed arrive as None)
 
     Returns:
         Dictionary with status_code and response message
@@ -51,6 +56,38 @@ def process_sdk_upload(
     # Generate batch_id if not provided (backwards compatibility)
     if not batch_id:
         batch_id = str(uuid.uuid4())
+
+    # Parse defensively: a malformed value degrades to None rather than dropping the batch
+    try:
+        received_at_dt = datetime.fromisoformat(received_at) if received_at else None
+    except (TypeError, ValueError):
+        log_structured(
+            logger,
+            "warning",
+            "Ignoring unparsable received_at on SDK batch",
+            provider=provider,
+            action="parse_received_at",
+            batch_id=batch_id,
+            user_id=user_id,
+            received_at=received_at,
+        )
+        received_at_dt = None
+
+    if received_at_dt is not None and received_at_dt.tzinfo is None:
+        # Comparing naive against the connection's aware updated_at would raise and drop the
+        # batch. The API always sends an aware UTC value, so a naive one means an unexpected
+        # producer - assume UTC and make it visible rather than skipping the guard.
+        log_structured(
+            logger,
+            "warning",
+            "Assuming UTC for timezone-naive received_at on SDK batch",
+            provider=provider,
+            action="parse_received_at",
+            batch_id=batch_id,
+            user_id=user_id,
+            received_at=received_at,
+        )
+        received_at_dt = received_at_dt.replace(tzinfo=timezone.utc)
 
     # Validate user_id format
     try:
@@ -105,7 +142,7 @@ def process_sdk_upload(
     with SessionLocal() as db:
         # Ensure SDK connection exists for this user (SDK-based, no OAuth tokens)
         connection_repo = UserConnectionRepository()
-        connection_repo.ensure_sdk_connection(db, user_uuid, provider)
+        connection_repo.ensure_sdk_connection(db, user_uuid, provider, received_at=received_at_dt)
 
         # Select the appropriate import service based on source
         import_service = _get_import_service(provider)

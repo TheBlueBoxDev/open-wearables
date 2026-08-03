@@ -1,5 +1,6 @@
 import json
 import uuid
+from datetime import datetime, timezone
 from logging import getLogger
 
 from fastapi import APIRouter, HTTPException, status
@@ -80,6 +81,10 @@ def sync_sdk_data(
     # Generate unique batch ID for tracking
     batch_id = str(uuid.uuid4())
 
+    # Server-side accept time. The worker compares it against the connection's revoke time so a
+    # batch accepted before a disconnect cannot reactivate the connection after it.
+    received_at = datetime.now(timezone.utc)
+
     # Extract and count data types from payload (best-effort; structure not yet validated)
     raw_data = body.get("data")
     data = raw_data if isinstance(raw_data, dict) else {}
@@ -121,6 +126,7 @@ def sync_sdk_data(
         user_id=user_id,
         provider=provider,
         batch_id=batch_id,
+        received_at=received_at.isoformat(),
     )
 
     return UploadDataResponse(status_code=202, response="Import task queued successfully", user_id=user_id)

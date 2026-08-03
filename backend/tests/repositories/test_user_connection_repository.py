@@ -573,3 +573,104 @@ class TestUserConnectionRepository:
         assert conn1.id in expiring_ids
         # 8-minute expiry should not be included
         assert all(c.token_expires_at <= now + timedelta(minutes=3) for c in results if c.id == conn1.id)
+
+    def test_ensure_sdk_connection_stale_batch_does_not_resurrect(
+        self,
+        db: Session,
+        connection_repo: UserConnectionRepository,
+    ) -> None:
+        """A batch accepted before the revoke must not reactivate the connection."""
+        # Arrange - revoked at T, batch accepted 1s earlier
+        user = UserFactory()
+        revoked_at = datetime.now(timezone.utc)
+        UserConnectionFactory(
+            user=user,
+            provider="apple",
+            status=ConnectionStatus.REVOKED,
+            updated_at=revoked_at,
+        )
+
+        # Act
+        result = connection_repo.ensure_sdk_connection(
+            db,
+            user.id,
+            "apple",
+            received_at=revoked_at - timedelta(seconds=1),
+        )
+
+        # Assert
+        assert result.status == ConnectionStatus.REVOKED
+        assert result.updated_at == revoked_at
+
+    def test_ensure_sdk_connection_post_revoke_batch_reactivates(
+        self,
+        db: Session,
+        connection_repo: UserConnectionRepository,
+    ) -> None:
+        """A batch accepted after the revoke is a genuine reconnect and reactivates the row."""
+        # Arrange
+        user = UserFactory()
+        revoked_at = datetime.now(timezone.utc)
+        UserConnectionFactory(
+            user=user,
+            provider="apple",
+            status=ConnectionStatus.REVOKED,
+            updated_at=revoked_at,
+        )
+
+        # Act
+        result = connection_repo.ensure_sdk_connection(
+            db,
+            user.id,
+            "apple",
+            received_at=revoked_at + timedelta(seconds=1),
+        )
+
+        # Assert
+        assert result.status == ConnectionStatus.ACTIVE
+        assert result.updated_at > revoked_at
+
+    def test_ensure_sdk_connection_without_received_at_reactivates(
+        self,
+        db: Session,
+        connection_repo: UserConnectionRepository,
+    ) -> None:
+        """Without received_at (task queued pre-deploy) the legacy reactivation still applies."""
+        # Arrange
+        user = UserFactory()
+        revoked_at = datetime.now(timezone.utc)
+        UserConnectionFactory(
+            user=user,
+            provider="apple",
+            status=ConnectionStatus.REVOKED,
+            updated_at=revoked_at,
+        )
+
+        # Act
+        result = connection_repo.ensure_sdk_connection(db, user.id, "apple")
+
+        # Assert
+        assert result.status == ConnectionStatus.ACTIVE
+
+    def test_ensure_sdk_connection_creates_active_connection(
+        self,
+        db: Session,
+        connection_repo: UserConnectionRepository,
+    ) -> None:
+        """First-time connect creates an ACTIVE row regardless of received_at."""
+        # Arrange
+        user = UserFactory()
+
+        # Act
+        result = connection_repo.ensure_sdk_connection(
+            db,
+            user.id,
+            "apple",
+            received_at=datetime.now(timezone.utc) - timedelta(hours=1),
+        )
+
+        # Assert
+        assert result.status == ConnectionStatus.ACTIVE
+        assert result.provider == "apple"
+        assert result.user_id == user.id
+        assert result.access_token is None

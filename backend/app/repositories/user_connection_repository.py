@@ -396,16 +396,40 @@ class UserConnectionRepository(CrudRepository[UserConnection, UserConnectionCrea
         db_session: DbSession,
         user_id: UUID,
         provider: str,
+        received_at: datetime | None = None,
     ) -> UserConnection:
         """Ensure an SDK-based connection exists for a user and provider.
 
         SDK-based providers (like Apple Health) don't use OAuth tokens.
         This method creates or returns an existing connection without tokens.
+
+        Args:
+            received_at: When the API accepted the batch that triggered this call. Used to
+                keep a batch accepted before a revoke from reactivating the connection.
+                Must be timezone-aware: it is compared against `updated_at`, which is always
+                aware, and a naive value would raise. The caller normalizes naive values to
+                UTC at the string -> datetime boundary.
+                None (a batch queued before this parameter existed) skips the check.
         """
         existing = self.get_by_user_and_provider(db_session, user_id, provider)
         if existing:
             # Reactivate if revoked
             if existing.status != ConnectionStatus.ACTIVE:
+                # A batch accepted before the user revoked the connection must not undo the
+                # revoke. On a revoked row `updated_at` is the moment of the revoke: the column
+                # has no `onupdate`, `update_last_synced_at` writes only `last_synced_at`, and
+                # disconnect() already reports this same value as `revoked_at` on the
+                # connection.revoked webhook.
+                if received_at is not None and received_at <= existing.updated_at:
+                    logger.info(
+                        "Skipping SDK reactivation for user %s provider %s: batch accepted %s predates revoke at %s",
+                        user_id,
+                        provider,
+                        received_at,
+                        existing.updated_at,
+                    )
+                    return existing
+
                 existing.status = ConnectionStatus.ACTIVE
                 existing.updated_at = datetime.now(timezone.utc)
                 db_session.add(existing)
